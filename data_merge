@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+import csv
+import requests
+import json
+import sys
+#
+#
+# Application Code
+#
+#
+#
+
+# Takes an account ID and returns json retrieved from the api with that ID
+# @param account_id - string
+# return json
+def get_account_data_from_api(account_id):
+        api_request = requests.get('http://API_ADDRESS.COM/%s' % account_id)
+        if api_request.status_code != 200 or str(api_request.json()['account_id']) != str(account_id):
+                return None
+        return api_request.json()
+
+# Takes two lists and merges them in output format
+# @param csv_row  - list
+# @param api_row - dictionary
+# return merged row or None
+def merge_csv_api_row(csv_row, api_row):
+    if len(csv_row) != 4:
+        return None
+    if len(api_row) != 3:
+        return None
+    try:
+        return [api_row['account_id'], csv_row[2], csv_row[3], api_row['status'], api_row['created_on']]
+    except TypeError:
+        return None
+# Takes a list of lists and writes them to a CSV output_file
+# @param merged_rows - list
+# @param output_file - string
+def write_merged_data_to_csv(merged_rows, output_file):
+        try:
+                with open(output_file, 'w') as csvFile:
+                        writer = csv.writer(csvFile, quoting = csv.QUOTE_NONE, escapechar = '\\')
+                        writer.writerow(['Account ID', 'First Name', 'Created On', 'Status', 'Status Set On'])
+                        for row in merged_rows:
+                            if len(row) != 5:
+                                # ignore row if length is incorrect
+                                break
+                            writer.writerow(row)
+        except FileNotFoundError:
+                print('Could not write to/create the output file %s' % FileNotFoundError)
+
+# Takes a CSV input file and merges it with data retrieved from the interview API
+# @param input_file - string
+# return list of merged rows
+def merge_account_data_from_csv_and_api(input_file):
+        try:
+                with open(input_file) as inputCsv:
+                        csv_reader = csv.reader(inputCsv)
+                        row_count = 0
+                        merged_rows = []
+                        for row in csv_reader:
+                                if len(row) != 4:
+                                        print('4 columns expected but %d found for row' % len(row))
+                                        row_count += 1
+                                        break
+                                if row_count > 0:
+                                        api_json = get_account_data_from_api(row[0])
+                                        if api_json is None:
+                                                print('couldn\'t retrieve data for user with ID: %s' % row[0])
+                                                row_count += 1
+                                                break
+                                        merged_row = merge_csv_api_row(row, api_json)
+                                        if merged_row is None:
+                                            print('row information does not match for ID: %s' % row[0])
+                                            break
+                                        merged_rows.append(merged_row)
+                                row_count += 1
+                return merged_rows
+        except FileNotFoundError:
+                print('Could not find the requested input file %s' % FileNotFoundError)
+
+#
+#
+#
+#
+#
+#
+# TESTS
+#
+#
+#
+#
+#
+#
+
+def test_merge_csv_api_row():
+    api_row_pass = {'account_id':'222222', 'status':'good', 'created_on':'2011-01-01'}
+    csv_row_pass = ['2222222', 'accountname', 'firstname', '2009-01-01']
+    api_row_short = {'account_id':'222222', 'status':'good'}
+    csv_row_short = ['2222222', 'accountname', 'firstname']
+    api_row_long = {'account_id':'222222', 'status':'good', 'created_on':'2011-01-01', 'data':'too much data'}
+    csv_row_long = ['2222222', 'accountname', 'firstname', '2009-01-01', 'too much data']
+    api_row_format = {'account_id', 'status', 'created_on'}
+
+    assert (merge_csv_api_row(csv_row_pass, api_row_pass) == ['222222', 'firstname', '2009-01-01', 'good', '2011-01-01'])
+    assert (merge_csv_api_row(csv_row_short, api_row_pass) is None)
+    assert (merge_csv_api_row(csv_row_short, api_row_short) is None)
+    assert (merge_csv_api_row(csv_row_pass, api_row_short) is None)
+    assert (merge_csv_api_row(csv_row_long, api_row_pass) is None)
+    assert (merge_csv_api_row(csv_row_long, api_row_long) is None)
+    assert (merge_csv_api_row(csv_row_pass, api_row_format) is None)
+
+def test_write_merged_data_to_csv():
+   row1 = ['222222', 'firstname', '2009-01-01', 'good', '2011-01-01']
+   row2 = ['"""222222', '""firstname', '2009///01///01', 'good', '2011-01-01']
+   row3 = ['12345']
+   row4 = ['222222', 'firstname', '2009-01-01', 'good', '2011-01-01', 'too much data']
+
+   merged_rows = [row1, row2, row3, row4]
+   write_merged_data_to_csv(merged_rows, 'test.csv')
+
+   with open('test.csv') as test_output:
+       csv_reader = csv.reader(test_output, escapechar = '\\')
+       assert (row1 in csv_reader)
+       assert (row2 in csv_reader)
+       assert (row3 not in csv_reader)
+       assert (row4 not in csv_reader)
+
+def run_tests():
+    test_merge_csv_api_row()
+    test_write_merged_data_to_csv()
+    print('Tests all passed!')
+#
+#
+#
+#  ENTRY POINT
+#
+#
+#
+
+if len(sys.argv) == 3:
+    merged_data = merge_account_data_from_csv_and_api(str(sys.argv[1]))
+    write_merged_data_to_csv(merged_data, str(sys.argv[2]))
+elif str(sys.argv[1]) == 'run_tests':
+    run_tests()
+else:
+    print('args must be in the format of data_merge <input.csv> <output.csv> or data_merge run_tests')
